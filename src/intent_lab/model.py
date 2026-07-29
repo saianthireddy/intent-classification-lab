@@ -17,13 +17,22 @@ Two choices worth naming:
   them in the pool is a silent bug that shrinks every embedding toward zero in
   proportion to how much padding it has.
 
-**On exactness of the mask.** Padding contents provably cannot influence real
-positions: at a fixed sequence length, replacing the pad rows with anything at
-all leaves real-position outputs bit-identical, and comparing two different
-padded lengths in float64 gives a difference of exactly zero. In float32 the
-same comparison differs by ~1e-4, which is accumulation order in the matmul
-kernel changing with the reduction length, not leakage. The tests assert the
-first property exactly and the second within a tolerance, and say why.
+**On exactness of the mask.** There are two different claims here and only one
+of them is exact.
+
+*Exact:* at a fixed sequence length, replacing the pad rows with anything at all
+leaves real-position outputs bit-identical. Masked weights are exactly 0.0, and
+0 * x contributes exactly nothing. This is the property that proves no
+information leaks from padding into a real token.
+
+*Not exact:* comparing two different padded lengths. Changing the sequence
+length changes the matmul's reduction length, which changes the kernel's
+accumulation order, and floating-point addition is not associative. float32
+differs by ~1e-4 and float64 by ~1e-16 — the discrepancy scales with precision,
+which is what identifies it as rounding rather than leakage. It is *not* zero in
+float64, and how far from zero depends on the BLAS the machine happens to use;
+an earlier version of this note claimed exactness and CI on a different CPU
+architecture disproved it.
 """
 from __future__ import annotations
 
