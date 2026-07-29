@@ -1,0 +1,4 @@
+-r requirements.txt
+# Optional: the pretrained fine-tuning path only. Needs Hugging Face hub access,
+# so it is deliberately not installed in CI.
+transformers>=4.40
