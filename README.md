@@ -82,7 +82,9 @@ Every model reports through the same `evaluate()`, so the rows in that table are
 
 **Padding cannot leak into real tokens.** `test_pad_contents_cannot_influence_real_positions` replaces the pad rows with values 500× larger and asserts real-position outputs are *bit-identical*. Not "close" — equal.
 
-**Sequence length is invariant only up to float32.** The same content with more padding differs by ~1e-4 in float32, because the matmul reduction length changes and float32 addition isn't associative. In float64 the difference is exactly zero. The test asserts the float32 case with a tolerance and the float64 case exactly, and says which is which — rather than loosening the tolerance until it passes and leaving the reader guessing whether it's rounding or a leak.
+**Sequence length invariance is *not* exact, and the test says so.** The same content with more padding differs by ~1e-3 in float32, because changing the padded length changes the matmul reduction length, and float addition isn't associative. What the test asserts instead is that the discrepancy is **precision-bound**: it shrinks by more than six orders of magnitude going from float32 to float64. Leakage wouldn't do that; rounding does.
+
+That test earned its keep. An earlier version asserted float64 was bit-exact — true on the aarch64 machine it was written on, false on the x86_64 CI runner, which uses a different BLAS and accumulates in a different order. CI caught a claim that was architecture-specific dressed up as a universal one. The fix was to weaken the assertion to what's actually true everywhere, not to loosen the tolerance until it went quiet.
 
 ## A bug this test suite found
 
