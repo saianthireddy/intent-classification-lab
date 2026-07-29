@@ -41,26 +41,36 @@ def test_pad_contents_cannot_influence_real_positions():
     assert torch.equal(quiet, loud)
 
 
-def test_sequence_length_is_invariant_up_to_float32_accumulation():
+def test_sequence_length_discrepancy_is_rounding_not_leakage():
     """Same content, different amount of padding.
 
-    Asserted with a tolerance rather than exactly, because the matmul reduction
-    length changes and float32 addition is not associative. In float64 the
-    difference is exactly zero — see the note in model.py — so this is rounding,
-    not leakage.
+    This cannot be asserted exactly, and the interesting part is why. Changing
+    the padded length changes the matmul reduction length, so the kernel
+    accumulates in a different order, and float addition is not associative.
+
+    What *is* verifiable is that the discrepancy is precision-bound: it shrinks
+    by ~12 orders of magnitude going from float32 to float64. Leakage would not
+    do that. (An earlier version of this test asserted float64 was bit-exact.
+    That held on aarch64 and failed on the x86_64 CI runner, which uses a
+    different BLAS — hence the claim below is about scaling, not equality.)
     """
     torch.manual_seed(0)
     model = IntentTransformer(vocab_size=40, n_classes=6, max_length=32).eval()
-    with torch.no_grad():
-        short = model(torch.tensor([[5, 6, 7] + [0] * 3]))
-        long = model(torch.tensor([[5, 6, 7] + [0] * 13]))
-    assert torch.allclose(short, long, atol=1e-2)
+    short_ids = torch.tensor([[5, 6, 7] + [0] * 3])
+    long_ids = torch.tensor([[5, 6, 7] + [0] * 13])
 
+    with torch.no_grad():
+        diff32 = (model(short_ids) - model(long_ids)).abs().max().item()
     model64 = model.double()
     with torch.no_grad():
-        s64 = model64(torch.tensor([[5, 6, 7] + [0] * 3]))
-        l64 = model64(torch.tensor([[5, 6, 7] + [0] * 13]))
-    assert torch.equal(s64, l64), "in float64 it must be bit-identical"
+        diff64 = (model64(short_ids) - model64(long_ids)).abs().max().item()
+
+    assert diff32 < 1e-2, "float32 drift should be small, just not zero"
+    assert diff64 < 1e-12, f"float64 drift should be near machine epsilon, got {diff64}"
+    assert diff64 < diff32 / 1e6, (
+        "the gap must shrink with precision; if it does not, this is a real "
+        f"masking bug rather than rounding (f32={diff32}, f64={diff64})"
+    )
 
 
 def test_head_count_must_divide_the_model_width():
